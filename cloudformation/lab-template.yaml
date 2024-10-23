@@ -101,22 +101,22 @@ Resources:
           Principal:
             Service: lambda.amazonaws.com
           Action: sts:AssumeRole
-          Policies:
-            - PolicyName: LambdaExecutionPolicy
-              PolicyDocument:
-                Version: "2012-10-17"
-                Statement:
-                  - Effect: Allow
-                    Action:
-                      - logs:CreateLogGroup
-                      - logs:CreateLogStream
-                      - logs:PutLogEvents
-                    Resource: arn:aws:logs:*:*:*
-                  - Effect: Allow
-                    Action:
-                      - ssm:GetParameter
-                      - secretsmanager:GetSecretValue
-                    Resource: "*"
+      Policies:
+        - PolicyName: LambdaExecutionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - secretsmanager:GetSecretValue
+                Resource: "*"
   NewUserEventRule:
     Type: AWS::Events::Rule
     Properties:
@@ -143,6 +143,6 @@ Outputs:
     Description: ARN of the Secrets Manager secret for EC2User's password
     Value: !Ref EC2UserPasswordSecret
 
-  User2PasswordSecretArn:
+  S3UserPasswordSecretArn:
     Description: ARN of the Secrets Manager secret for S3User's password
     Value: !Ref S3UserPasswordSecret
