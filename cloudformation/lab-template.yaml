@@ -1,0 +1,148 @@
+Resources:
+  S3ReadOnlyPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:ListObject
+          Resource: "*"
+  S3Group:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: S3Group
+      ManagedPolicyArns:
+        - !Ref S3ReadOnlyPolicy
+  EC2Group:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: EC2Group
+      ManagedPolicyArns:
+        - !Ref S3ReadOnlyPolicy
+  EC2User:
+    Type: AWS::IAM::User
+    Properties:
+      Groups:
+        - !Ref EC2Group
+      UserName: ec2-user
+      LoginProfile:
+        Password: !GetAtt EC2UserPasswordSecret.SecretString.password
+        PasswordResetRequired: true
+  S3User:
+    Type: AWS::IAM::User
+    Properties:
+      Groups:
+        - !Ref S3Group
+      UserName: s3-user
+      LoginProfile:
+        Password: !GetAtt S3UserPasswordSecret.SecretString.password
+        PasswordResetRequired: true
+  EC2UserPasswordSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: Default password for EC2User
+      GenerateSecretString:
+        SecretStringTemplate: '{"username":"ec2-user"}'
+        GenerateStringKey: password
+        PasswordLength: 12
+        ExcludeCharacters: '"@/\'
+  S3UserPasswordSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: Default password for S3User
+      GenerateSecretString:
+        SecretStringTemplate: '{"username":"s3-user"}'
+        GenerateStringKey: password
+        PasswordLength: 12
+        ExcludeCharacters: '"@/\'
+  EC2UserEmailParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Type: String
+      Value: s3-user-qmg9@gmail.com
+  S3UserEmailParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Type: String
+      Value: ec2-user-kekn@gmail.com
+  WelcomeEmailFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Runtime: python3.9
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          def handler(event, context):
+              ssm = boto3.client('ssm')
+              secretsmanager = boto3.client('secretsmanager')
+              for record in event['Records']:
+                  if record['detail']['eventName'] == 'CreateUser':
+                      user_name = record['detail']['requestParameters']['userName']
+                      # Get email from Parameter Store
+                      email = ssm.get_parameter(Name=f"/users/{user_name}/email")['Parameter']['Value']
+                      # Get temporary password from Secrets Manager
+                      password = secretsmanager.get_secret_value(SecretId=f"{user_name}Password")['SecretString']
+                      password = json.loads(password)['password']
+                      print(f"User: {user_name}, Email: {email}, Temporary Password: {password}")
+      Role: !GetAtt LambdaExecutionRole.Arn
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: WelcomeEmailLambdaExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-7
+        Statement:
+          Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action: sts:AssumeRole
+          Policies:
+            - PolicyName: LambdaExecutionPolicy
+              PolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                  - Effect: Allow
+                    Action:
+                      - logs:CreateLogGroup
+                      - logs:CreateLogStream
+                      - logs:PutLogEvents
+                    Resource: arn:aws:logs:*:*:*
+                  - Effect: Allow
+                    Action:
+                      - ssm:GetParameter
+                      - secretsmanager:GetSecretValue
+                    Resource: "*"
+  NewUserEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        source:
+          - aws.iam
+        detail-type:
+          - AWS API Call via CloudTrail
+        detail:
+          eventName:
+            - CreateUser
+      Targets:
+        - Arn: !GetAtt WelcomeEmailFunction.Arn
+          Id: WelcomeEmailFunctionTarget
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref WelcomeEmailFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+
+Outputs:
+  EC2PasswordSecretArn:
+    Description: ARN of the Secrets Manager secret for EC2User's password
+    Value: !Ref EC2UserPasswordSecret
+
+  User2PasswordSecretArn:
+    Description: ARN of the Secrets Manager secret for S3User's password
+    Value: !Ref S3UserPasswordSecret
